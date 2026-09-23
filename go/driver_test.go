@@ -863,6 +863,12 @@ func (suite *DatabricksTests) TestDecimalTypes() {
 	suite.Equal("decimal_col", rec.ColumnName(0))
 	suite.Equal("decimal_col2", rec.ColumnName(1))
 
+	// Verify DECIMAL columns are returned as Arrow decimal128, not strings
+	suite.Equal(&arrow.Decimal128Type{Precision: 10, Scale: 2}, rec.Schema().Field(0).Type)
+	suite.Equal(&arrow.Decimal128Type{Precision: 6, Scale: 3}, rec.Schema().Field(1).Type)
+	suite.Equal("123.45", rec.Column(0).ValueStr(0))
+	suite.Equal("999.999", rec.Column(1).ValueStr(0))
+
 	suite.False(rdr.Next())
 	suite.Require().NoError(rdr.Err())
 }
