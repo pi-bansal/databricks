@@ -28,6 +28,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -113,6 +114,8 @@ func (d *databaseImpl) resolveConnectionOptions() ([]dbsql.ConnOption, error) {
 	opts := []dbsql.ConnOption{
 		dbsql.WithServerHostname(d.serverHostname),
 		dbsql.WithHTTPPath(d.httpPath),
+		// Return DECIMAL columns as Arrow decimal128 instead of strings
+		dbsql.WithArrowNativeDecimal(true),
 	}
 
 	if d.accessToken != "" {
@@ -187,13 +190,39 @@ func (d *databaseImpl) resolveConnectionOptions() ([]dbsql.ConnOption, error) {
 	return opts, nil
 }
 
+// withArrowNativeDecimalDSN enables the useArrowNativeDecimal DSN parameter so
+// DECIMAL columns are returned as Arrow decimal128 instead of strings, unless
+// the caller already set it explicitly.
+func withArrowNativeDecimalDSN(dsn string) string {
+	base, rawQuery, hasQuery := strings.Cut(dsn, "?")
+	if hasQuery {
+		// A malformed query is left for databricks-sql-go to report
+		if params, err := url.ParseQuery(rawQuery); err == nil {
+			for key := range params {
+				if strings.EqualFold(key, "useArrowNativeDecimal") {
+					return dsn
+				}
+			}
+		}
+	}
+
+	param := "useArrowNativeDecimal=true"
+	if !hasQuery {
+		return base + "?" + param
+	}
+	if rawQuery == "" || strings.HasSuffix(rawQuery, "&") {
+		return dsn + param
+	}
+	return dsn + "&" + param
+}
+
 func (d *databaseImpl) initializeConnectionPool(ctx context.Context) (*sql.DB, error) {
 	var db *sql.DB
 
 	// Use URI if provided
 	if d.uri != "" {
 		var err error
-		db, err = sql.Open("databricks", d.uri)
+		db, err = sql.Open("databricks", withArrowNativeDecimalDSN(d.uri))
 		if err != nil {
 			return nil, err
 		}
